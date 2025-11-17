@@ -1,10 +1,11 @@
-name: Monitor de Preço Diário
+name: Monitor de Preço (2x ao Dia)
 
 on:
   schedule:
-    # Roda todo dia as 13:00 UTC (10:00 Brasil)
-    - cron: '0 13 * * *'
-  # Permite rodar manualmente clicando num botão (para testar)
+    # A vírgula separa os horários: 13h (10h BR) e 21h (18h BR)
+    - cron: '0 13,21 * * *'
+  
+  # Permite rodar manualmente para testes
   workflow_dispatch:
 
 permissions:
@@ -33,10 +34,11 @@ jobs:
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python main.py
 
-      - name: Salvar CSV atualizado (Commit e Push)
+      - name: Salvar CSV atualizado
         run: |
           git config --global user.name 'Robo GitHub'
           git config --global user.email 'robo@users.noreply.github.com'
           git add relatorio_medicamento.csv
-          git commit -m "Atualizacao diaria de preco" || echo "Nada para commitar"
+          # O comando abaixo só commita se houver mudança, evitando erro se o preço for igual
+          git commit -m "Atualizacao de preco (Rotina)" || echo "Sem mudanças no CSV"
           git push
