@@ -15,7 +15,6 @@ from bs4 import BeautifulSoup
 URL_PRODUTO = "https://www.drogasil.com.br/dimesilato-de-lisdexanfetamina-50mg-pharlab-genericos-30-capsulas-a3-1020864.html?origin=search"
 PRECO_MINIMO_ACEITAVEL = 100.00 
 
-# Pega as senhas dos Segredos do GitHub
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
@@ -30,15 +29,26 @@ def limpar_para_numero(texto):
 def formatar_br(valor):
     return f"{valor:,.2f}".replace(',', 'v').replace('.', ',').replace('v', '.')
 
+# --- NOVA FUNÇÃO: Converte horário do Servidor (UTC) para Brasil (UTC-3) ---
+def obter_data_brasil():
+    fuso_horario = datetime.timezone(datetime.timedelta(hours=-3))
+    data_hora = datetime.datetime.now(fuso_horario)
+    return data_hora
+# ---------------------------------------------------------------------------
+
 def enviar_telegram(p_orig, p_promo, p_calc):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
         print(">> Sem credenciais do Telegram. Pulando envio.")
         return
 
     print("\nEnviando mensagem para o Telegram...")
+    
+    # Usa a função nova para pegar a hora certa
+    agora = obter_data_brasil()
+    
     mensagem = (
         f"💊 *Relatório Diário*\n"
-        f"📅 {datetime.datetime.now().strftime('%d/%m %H:%M')}\n\n"
+        f"📅 {agora.strftime('%d/%m %H:%M')} (Brasília)\n\n"
         f"💰 *Atual:* R$ {p_promo}\n"
         f"📉 *Original:* R$ {p_orig}\n"
         f"------------------\n"
@@ -63,16 +73,13 @@ def capturar_preco():
     try:
         options = webdriver.ChromeOptions()
         
-        # --- CONFIGURAÇÃO ANTI-BLOQUEIO ---
-        # 1. Define um User-Agent de pessoa real (Windows 10)
+        # Configuração Anti-Bloqueio
         options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-        
-        # 2. Desativa a flag que diz "Eu sou um robô"
         options.add_argument("--disable-blink-features=AutomationControlled")
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option('useAutomationExtension', False)
         
-        # 3. Configurações padrão de servidor
+        # Configuração de Nuvem
         options.add_argument("--headless=new") 
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
@@ -81,22 +88,20 @@ def capturar_preco():
         service = Service(ChromeDriverManager().install())
         driver = webdriver.Chrome(service=service, options=options)
         
-        # Script extra para enganar verificação de webdriver
+        # Script extra
         driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         
         print(f"Acessando: {URL_PRODUTO}")
         driver.get(URL_PRODUTO)
         time.sleep(15) 
         
-        # DEBUG: Vamos ver o título da página para saber se abriu certo
-        print(f"Titulo da Pagina carregada: {driver.title}")
+        print(f"Pagina: {driver.title}")
         
         soup = BeautifulSoup(driver.page_source, 'html.parser')
         
-        # --- ESTRATÉGIA 1: JSON ---
+        # 1. JSON
         preco_promocional_final = 0.0
         scripts_json = soup.find_all('script', {'type': 'application/ld+json'})
-        
         for script in scripts_json:
             try:
                 if not script.string: continue
@@ -107,12 +112,10 @@ def capturar_preco():
                         preco_promocional_final = float(offers[0].get('price', 0))
                     elif isinstance(offers, dict):
                         preco_promocional_final = float(offers.get('price', 0))
-                    if preco_promocional_final > 0: 
-                        print(f"Preço JSON encontrado: {preco_promocional_final}")
-                        break
+                    if preco_promocional_final > 0: break
             except: continue
 
-        # --- ESTRATÉGIA 2: VISUAL ---
+        # 2. VISUAL
         elementos_visuais = soup.find_all(string=lambda text: text and "R$" in text)
         lista_valores = []
         for texto in elementos_visuais:
@@ -121,9 +124,8 @@ def capturar_preco():
                 lista_valores.append(val)
         
         lista_valores = sorted(list(set(lista_valores)))
-        print(f"Valores visuais encontrados: {lista_valores}")
 
-        # --- LÓGICA FINAL ---
+        # 3. LÓGICA
         if preco_promocional_final == 0.0:
             preco_promocional_final = lista_valores[0] if lista_valores else 0.0
 
@@ -139,13 +141,13 @@ def capturar_preco():
         p_promo_str = formatar_br(preco_promocional_final)
         p_calc_str = formatar_br(valor_com_45_off)
 
-        print(f"RESULTADO: Original={p_orig_str} | Promo={p_promo_str} | 45%={p_calc_str}")
+        print(f"RESULTADO: Original={p_orig_str} | Promo={p_promo_str}")
         
         if preco_promocional_final > 0:
             gravar_no_csv(p_orig_str, p_promo_str, p_calc_str)
             enviar_telegram(p_orig_str, p_promo_str, p_calc_str)
         else:
-            print("ERRO: Site provavelmente bloqueou ou retornou página vazia.")
+            print("ERRO: Bloqueio ou pagina vazia.")
 
     except Exception as e:
         print(f"ERRO FATAL: {e}")
@@ -160,10 +162,13 @@ def gravar_no_csv(p_original, p_promocional, p_calculado):
         if not arquivo_existe:
             writer.writerow(["Data", "Hora", "Original", "Atual", "45% OFF"])
         
-        data_atual = datetime.datetime.now().strftime("%d/%m/%Y")
-        hora_atual = datetime.datetime.now().strftime("%H:%M:%S")
-        writer.writerow([data_atual, hora_atual, p_original, p_promocional, p_calculado])
-        print("CSV atualizado.")
+        # Usa a função nova aqui também para salvar correto no CSV
+        agora = obter_data_brasil()
+        data_str = agora.strftime("%d/%m/%Y")
+        hora_str = agora.strftime("%H:%M:%S")
+        
+        writer.writerow([data_str, hora_str, p_original, p_promocional, p_calculado])
+        print("CSV atualizado com horario BR.")
 
 if __name__ == "__main__":
     capturar_preco()
