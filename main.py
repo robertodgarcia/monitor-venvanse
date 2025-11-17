@@ -19,7 +19,6 @@ PRECO_MINIMO_ACEITAVEL = 100.00
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-# Nome do arquivo CSV
 ARQUIVO_RELATORIO = "relatorio_medicamento.csv"
 # ---------------------
 
@@ -38,7 +37,7 @@ def enviar_telegram(p_orig, p_promo, p_calc):
 
     print("\nEnviando mensagem para o Telegram...")
     mensagem = (
-        f"💊 *Relatório do Medicamento*\n"
+        f"💊 *Relatório Diário*\n"
         f"📅 {datetime.datetime.now().strftime('%d/%m %H:%M')}\n\n"
         f"💰 *Atual:* R$ {p_promo}\n"
         f"📉 *Original:* R$ {p_orig}\n"
@@ -49,11 +48,7 @@ def enviar_telegram(p_orig, p_promo, p_calc):
     )
     
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": TELEGRAM_CHAT_ID,
-        "text": mensagem,
-        "parse_mode": "Markdown"
-    }
+    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": mensagem, "parse_mode": "Markdown"}
     
     try:
         requests.post(url, json=payload)
@@ -62,27 +57,43 @@ def enviar_telegram(p_orig, p_promo, p_calc):
         print(f">> Erro Telegram: {e}")
 
 def capturar_preco():
-    print("--- Iniciando Execução na Nuvem (GitHub Actions) ---")
+    print("--- Iniciando Modo Furtivo (Stealth) ---")
     driver = None
 
     try:
         options = webdriver.ChromeOptions()
-        # Configurações OBRIGATÓRIAS para rodar no servidor do GitHub
+        
+        # --- CONFIGURAÇÃO ANTI-BLOQUEIO ---
+        # 1. Define um User-Agent de pessoa real (Windows 10)
+        options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        
+        # 2. Desativa a flag que diz "Eu sou um robô"
+        options.add_argument("--disable-blink-features=AutomationControlled")
+        options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        options.add_experimental_option('useAutomationExtension', False)
+        
+        # 3. Configurações padrão de servidor
+        options.add_argument("--headless=new") 
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
-        options.add_argument("--headless=new") # Modo invisível (sem janela)
         options.add_argument("--window-size=1920,1080")
         
         service = Service(ChromeDriverManager().install())
         driver = webdriver.Chrome(service=service, options=options)
         
+        # Script extra para enganar verificação de webdriver
+        driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        
         print(f"Acessando: {URL_PRODUTO}")
         driver.get(URL_PRODUTO)
-        time.sleep(15) # Espera generosa para carregar tudo
+        time.sleep(15) 
+        
+        # DEBUG: Vamos ver o título da página para saber se abriu certo
+        print(f"Titulo da Pagina carregada: {driver.title}")
         
         soup = BeautifulSoup(driver.page_source, 'html.parser')
         
-        # --- ESTRATÉGIA 1: JSON (INFALÍVEL) ---
+        # --- ESTRATÉGIA 1: JSON ---
         preco_promocional_final = 0.0
         scripts_json = soup.find_all('script', {'type': 'application/ld+json'})
         
@@ -101,7 +112,7 @@ def capturar_preco():
                         break
             except: continue
 
-        # --- ESTRATÉGIA 2: VISUAL (SCANNER) ---
+        # --- ESTRATÉGIA 2: VISUAL ---
         elementos_visuais = soup.find_all(string=lambda text: text and "R$" in text)
         lista_valores = []
         for texto in elementos_visuais:
@@ -110,24 +121,20 @@ def capturar_preco():
                 lista_valores.append(val)
         
         lista_valores = sorted(list(set(lista_valores)))
-        
+        print(f"Valores visuais encontrados: {lista_valores}")
+
         # --- LÓGICA FINAL ---
         if preco_promocional_final == 0.0:
-            print("JSON falhou, usando scanner visual.")
             preco_promocional_final = lista_valores[0] if lista_valores else 0.0
 
-        # Busca o preço original (o próximo valor acima do promocional)
         candidatos_original = [x for x in lista_valores if x > (preco_promocional_final + 1.00)]
-        
         if candidatos_original:
             preco_original_final = min(candidatos_original)
         else:
             preco_original_final = preco_promocional_final
 
-        # Cálculo dos 45%
         valor_com_45_off = preco_original_final * 0.55
         
-        # Formatação
         p_orig_str = formatar_br(preco_original_final)
         p_promo_str = formatar_br(preco_promocional_final)
         p_calc_str = formatar_br(valor_com_45_off)
@@ -138,19 +145,16 @@ def capturar_preco():
             gravar_no_csv(p_orig_str, p_promo_str, p_calc_str)
             enviar_telegram(p_orig_str, p_promo_str, p_calc_str)
         else:
-            print("ERRO: Não foi possível detectar o preço.")
+            print("ERRO: Site provavelmente bloqueou ou retornou página vazia.")
 
     except Exception as e:
-        print(f"ERRO FATAL NO SCRIPT: {e}")
+        print(f"ERRO FATAL: {e}")
     
     finally:
-        if driver: 
-            driver.quit()
-            print("Navegador fechado.")
+        if driver: driver.quit()
 
 def gravar_no_csv(p_original, p_promocional, p_calculado):
     arquivo_existe = os.path.isfile(ARQUIVO_RELATORIO)
-    # 'utf-8-sig' ajuda o Excel a ler acentos
     with open(ARQUIVO_RELATORIO, mode='a', newline='', encoding='utf-8-sig') as arquivo:
         writer = csv.writer(arquivo, delimiter=';')
         if not arquivo_existe:
@@ -162,5 +166,4 @@ def gravar_no_csv(p_original, p_promocional, p_calculado):
         print("CSV atualizado.")
 
 if __name__ == "__main__":
-    # Executa apenas uma vez e encerra (para o GitHub Actions)
     capturar_preco()
