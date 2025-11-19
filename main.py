@@ -29,12 +29,10 @@ def limpar_para_numero(texto):
 def formatar_br(valor):
     return f"{valor:,.2f}".replace(',', 'v').replace('.', ',').replace('v', '.')
 
-# --- NOVA FUNÇÃO: Converte horário do Servidor (UTC) para Brasil (UTC-3) ---
 def obter_data_brasil():
     fuso_horario = datetime.timezone(datetime.timedelta(hours=-3))
     data_hora = datetime.datetime.now(fuso_horario)
     return data_hora
-# ---------------------------------------------------------------------------
 
 def enviar_telegram(p_orig, p_promo, p_calc):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
@@ -42,8 +40,6 @@ def enviar_telegram(p_orig, p_promo, p_calc):
         return
 
     print("\nEnviando mensagem para o Telegram...")
-    
-    # Usa a função nova para pegar a hora certa
     agora = obter_data_brasil()
     
     mensagem = (
@@ -72,14 +68,10 @@ def capturar_preco():
 
     try:
         options = webdriver.ChromeOptions()
-        
-        # Configuração Anti-Bloqueio
         options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         options.add_argument("--disable-blink-features=AutomationControlled")
         options.add_experimental_option("excludeSwitches", ["enable-automation"])
         options.add_experimental_option('useAutomationExtension', False)
-        
-        # Configuração de Nuvem
         options.add_argument("--headless=new") 
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
@@ -87,19 +79,15 @@ def capturar_preco():
         
         service = Service(ChromeDriverManager().install())
         driver = webdriver.Chrome(service=service, options=options)
-        
-        # Script extra
         driver.execute_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         
         print(f"Acessando: {URL_PRODUTO}")
         driver.get(URL_PRODUTO)
         time.sleep(15) 
         
-        print(f"Pagina: {driver.title}")
-        
         soup = BeautifulSoup(driver.page_source, 'html.parser')
         
-        # 1. JSON
+        # 1. JSON (Busca Preço Atual)
         preco_promocional_final = 0.0
         scripts_json = soup.find_all('script', {'type': 'application/ld+json'})
         for script in scripts_json:
@@ -115,7 +103,7 @@ def capturar_preco():
                     if preco_promocional_final > 0: break
             except: continue
 
-        # 2. VISUAL
+        # 2. VISUAL (Busca Todos os Preços da tela)
         elementos_visuais = soup.find_all(string=lambda text: text and "R$" in text)
         lista_valores = []
         for texto in elementos_visuais:
@@ -125,18 +113,36 @@ def capturar_preco():
         
         lista_valores = sorted(list(set(lista_valores)))
 
-        # 3. LÓGICA
+        # 3. LÓGICA DE DEFINIÇÃO
         if preco_promocional_final == 0.0:
             preco_promocional_final = lista_valores[0] if lista_valores else 0.0
 
+        # Tenta achar um preço original MAIOR que o atual
         candidatos_original = [x for x in lista_valores if x > (preco_promocional_final + 1.00)]
+        
         if candidatos_original:
-            preco_original_final = min(candidatos_original)
+            possivel_original = min(candidatos_original)
+            
+            # FILTRO DE SEGURANÇA (IMPORTANTE):
+            # Se o preço "original" achado for mais de 60% maior que o atual, 
+            # é porque pegou o preço do remédio de Referência (errado).
+            # Nesse caso, descartamos e dizemos que Original = Atual.
+            limite_aceitavel = preco_promocional_final * 1.60
+            
+            if possivel_original > limite_aceitavel:
+                print(f"Aviso: Valor R$ {possivel_original} ignorado (muito alto/referência).")
+                preco_original_final = preco_promocional_final
+            else:
+                preco_original_final = possivel_original
         else:
+            # Se não achou nenhum valor maior, Original = Atual
             preco_original_final = preco_promocional_final
 
+        # 4. CÁLCULO 45%
+        # Sempre baseado no Original (que pode ser igual ao atual se não tiver desconto)
         valor_com_45_off = preco_original_final * 0.55
         
+        # Formatação
         p_orig_str = formatar_br(preco_original_final)
         p_promo_str = formatar_br(preco_promocional_final)
         p_calc_str = formatar_br(valor_com_45_off)
@@ -162,13 +168,12 @@ def gravar_no_csv(p_original, p_promocional, p_calculado):
         if not arquivo_existe:
             writer.writerow(["Data", "Hora", "Original", "Atual", "45% OFF"])
         
-        # Usa a função nova aqui também para salvar correto no CSV
         agora = obter_data_brasil()
         data_str = agora.strftime("%d/%m/%Y")
         hora_str = agora.strftime("%H:%M:%S")
         
         writer.writerow([data_str, hora_str, p_original, p_promocional, p_calculado])
-        print("CSV atualizado com horario BR.")
+        print("CSV atualizado.")
 
 if __name__ == "__main__":
     capturar_preco()
