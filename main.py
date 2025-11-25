@@ -2,68 +2,61 @@ import sys
 import os
 import time
 import datetime
-import csv
-import re
-import json
+# import csv # Não é mais necessário para este objetivo
+# import re # Não é mais necessário para este objetivo
+# import json # Não é mais necessário para este objetivo
 import requests
 from selenium import webdriver
 from selenium.webdriver.chrome.service import Service
 from webdriver_manager.chrome import ChromeDriverManager
-from bs4 import BeautifulSoup
+# from bs4 import BeautifulSoup # Não é mais necessário para este objetivo
 
 # --- CONFIGURAÇÕES ---
 URL_PRODUTO = "https://www.drogasil.com.br/dimesilato-de-lisdexanfetamina-50mg-pharlab-genericos-30-capsulas-a3-1020864.html?origin=search"
-PRECO_MINIMO_ACEITAVEL = 100.00 
+# PRECO_MINIMO_ACEITAVEL = 100.00 # Não é mais necessário
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-ARQUIVO_RELATORIO = "relatorio_medicamento.csv"
+# ARQUIVO_RELATORIO = "relatorio_medicamento.csv" # Não é mais necessário
 # ---------------------
-
-def limpar_para_numero(texto):
-    apenas_numeros = re.sub(r'[^\d,]', '', str(texto))
-    if not apenas_numeros: return 0.0
-    return float(apenas_numeros.replace(',', '.'))
-
-def formatar_br(valor):
-    return f"{valor:,.2f}".replace(',', 'v').replace('.', ',').replace('v', '.')
 
 def obter_data_brasil():
     fuso_horario = datetime.timezone(datetime.timedelta(hours=-3))
     data_hora = datetime.datetime.now(fuso_horario)
     return data_hora
 
-def enviar_telegram(p_orig, p_promo, p_calc):
+def enviar_screenshot_telegram(caminho_arquivo):
     if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
         print(">> Sem credenciais do Telegram. Pulando envio.")
         return
 
-    print("\nEnviando mensagem para o Telegram...")
-    agora = obter_data_brasil()
+    print("\nEnviando screenshot para o Telegram...")
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
     
-    mensagem = (
-        f"💊 *Relatório Diário*\n"
-        f"📅 {agora.strftime('%d/%m %H:%M')} (Brasília)\n\n"
-        f"💰 *Atual:* R$ {p_promo}\n"
-        f"📉 *Original:* R$ {p_orig}\n"
-        f"------------------\n"
-        f"👮 *45% OFF:* R$ {p_calc}\n"
-        f"------------------\n"
+    agora = obter_data_brasil()
+    caption = (
+        f"💊 *Preço capturado*\n"
+        f"📅 {agora.strftime('%d/%m %H:%M')} (Brasília)\n"
         f"🔗 [Link Drogasil]({URL_PRODUTO})"
     )
     
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": mensagem, "parse_mode": "Markdown"}
+    files = {'photo': open(caminho_arquivo, 'rb')}
+    payload = {"chat_id": TELEGRAM_CHAT_ID, "caption": caption, "parse_mode": "Markdown"}
     
     try:
-        requests.post(url, json=payload)
-        print(">> Telegram enviado!")
+        requests.post(url, data=payload, files=files)
+        print(">> Screenshot enviado com sucesso!")
     except Exception as e:
-        print(f">> Erro Telegram: {e}")
+        print(f">> Erro Telegram (Envio de Imagem): {e}")
+
+    # Limpa o arquivo local após o envio
+    if os.path.exists(caminho_arquivo):
+        os.remove(caminho_arquivo)
 
 def capturar_preco():
-    print("--- Iniciando Modo Furtivo (Stealth) ---")
+    NOME_ARQUIVO_SS = "preco_medicamento.png"
+    print("--- Iniciando Captura de Tela ---")
     driver = None
 
     try:
@@ -83,97 +76,25 @@ def capturar_preco():
         
         print(f"Acessando: {URL_PRODUTO}")
         driver.get(URL_PRODUTO)
+        
+        # Espera para garantir o carregamento do preço
         time.sleep(15) 
         
-        soup = BeautifulSoup(driver.page_source, 'html.parser')
+        # CAPTURA DE TELA
+        driver.save_screenshot(NOME_ARQUIVO_SS)
+        print(f"Screenshot salvo como {NOME_ARQUIVO_SS}")
         
-        # 1. JSON (Busca Preço Atual)
-        preco_promocional_final = 0.0
-        scripts_json = soup.find_all('script', {'type': 'application/ld+json'})
-        for script in scripts_json:
-            try:
-                if not script.string: continue
-                dados = json.loads(script.string)
-                if isinstance(dados, dict) and dados.get('@type') == 'Product':
-                    offers = dados.get('offers')
-                    if isinstance(offers, list):
-                        preco_promocional_final = float(offers[0].get('price', 0))
-                    elif isinstance(offers, dict):
-                        preco_promocional_final = float(offers.get('price', 0))
-                    if preco_promocional_final > 0: break
-            except: continue
-
-        # 2. VISUAL (Busca Todos os Preços da tela)
-        elementos_visuais = soup.find_all(string=lambda text: text and "R$" in text)
-        lista_valores = []
-        for texto in elementos_visuais:
-            val = limpar_para_numero(texto.strip())
-            if val > PRECO_MINIMO_ACEITAVEL:
-                lista_valores.append(val)
-        
-        lista_valores = sorted(list(set(lista_valores)))
-
-        # 3. LÓGICA DE DEFINIÇÃO
-        if preco_promocional_final == 0.0:
-            preco_promocional_final = lista_valores[0] if lista_valores else 0.0
-
-        # Tenta achar um preço original MAIOR que o atual
-        candidatos_original = [x for x in lista_valores if x > (preco_promocional_final + 1.00)]
-        
-        if candidatos_original:
-            possivel_original = min(candidatos_original)
-            
-            # FILTRO DE SEGURANÇA (IMPORTANTE):
-            # Se o preço "original" achado for mais de 60% maior que o atual, 
-            # é porque pegou o preço do remédio de Referência (errado).
-            # Nesse caso, descartamos e dizemos que Original = Atual.
-            limite_aceitavel = preco_promocional_final * 1.60
-            
-            if possivel_original > limite_aceitavel:
-                print(f"Aviso: Valor R$ {possivel_original} ignorado (muito alto/referência).")
-                preco_original_final = preco_promocional_final
-            else:
-                preco_original_final = possivel_original
-        else:
-            # Se não achou nenhum valor maior, Original = Atual
-            preco_original_final = preco_promocional_final
-
-        # 4. CÁLCULO 45%
-        # Sempre baseado no Original (que pode ser igual ao atual se não tiver desconto)
-        valor_com_45_off = preco_original_final * 0.55
-        
-        # Formatação
-        p_orig_str = formatar_br(preco_original_final)
-        p_promo_str = formatar_br(preco_promocional_final)
-        p_calc_str = formatar_br(valor_com_45_off)
-
-        print(f"RESULTADO: Original={p_orig_str} | Promo={p_promo_str}")
-        
-        if preco_promocional_final > 0:
-            gravar_no_csv(p_orig_str, p_promo_str, p_calc_str)
-            enviar_telegram(p_orig_str, p_promo_str, p_calc_str)
-        else:
-            print("ERRO: Bloqueio ou pagina vazia.")
+        # ENVIO
+        enviar_screenshot_telegram(NOME_ARQUIVO_SS)
 
     except Exception as e:
-        print(f"ERRO FATAL: {e}")
+        print(f"ERRO FATAL DURANTE A CAPTURA: {e}")
     
     finally:
         if driver: driver.quit()
 
-def gravar_no_csv(p_original, p_promocional, p_calculado):
-    arquivo_existe = os.path.isfile(ARQUIVO_RELATORIO)
-    with open(ARQUIVO_RELATORIO, mode='a', newline='', encoding='utf-8-sig') as arquivo:
-        writer = csv.writer(arquivo, delimiter=';')
-        if not arquivo_existe:
-            writer.writerow(["Data", "Hora", "Original", "Atual", "45% OFF"])
-        
-        agora = obter_data_brasil()
-        data_str = agora.strftime("%d/%m/%Y")
-        hora_str = agora.strftime("%H:%M:%S")
-        
-        writer.writerow([data_str, hora_str, p_original, p_promocional, p_calculado])
-        print("CSV atualizado.")
+# As funções 'limpar_para_numero', 'formatar_br', 'enviar_telegram' (antiga) e 'gravar_no_csv' foram removidas
+# por não serem mais necessárias para a captura de tela.
 
 if __name__ == "__main__":
     capturar_preco()
