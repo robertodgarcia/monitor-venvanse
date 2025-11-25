@@ -142,14 +142,31 @@ def capturar_preco():
 
         # 2. BUSCA POR DESCONTO E PARCELAMENTO (Elementos visuais/estruturais)
         
-        # Tentativa de buscar preço original (riscado)
+                # 2. BUSCA POR PREÇO ORIGINAL E PARCELAMENTO (Elementos visuais/estruturais)
+        
+        # --- TENTATIVA 1: Busca pelo seletor 'price-tag-original' ---
         original_elem = soup.find('p', class_='price-tag-original')
+
+        # --- TENTATIVA 2: Busca pelo preço riscado (ex: element com tag <del> ou preço antigo) ---
+        if not original_elem:
+            original_elem = soup.find('del')
+        
+        # --- TENTATIVA 3: Busca por texto contendo 'de' ou 'por' (padrão de preço anterior) ---
+        if not original_elem:
+            # Busca um elemento que contenha texto como 'De R$ XXX,XX'
+            original_elem = soup.find(text=re.compile(r'(De R\$|Valor: R\$)'))
+            if original_elem:
+                original_elem = original_elem.parent # Pega o elemento pai para extrair o preço
+        
+        # --- EXTRAÇÃO DO PREÇO ORIGINAL ---
         if original_elem:
             preco_original_final = limpar_para_numero(original_elem.text)
         elif preco_promocional_final > 0:
-            # Se não encontrou o original visual, assume que o original é o promocional
-            # (ou será ajustado depois com a lógica de filtro)
+            # Se não encontrou visualmente, assume que o original é igual ao promocional por enquanto
             preco_original_final = preco_promocional_final
+            
+        # ... (O restante da lógica de parcelamento, desconto e filtro de segurança permanece o mesmo)
+
             
         # Tentativa de buscar informações de parcelamento (ex: "Em até 3x sem juros")
         parcelamento_elem = soup.find(text=re.compile(r'Em até \d+x sem juros|Em até \d+x'))
