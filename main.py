@@ -20,7 +20,7 @@ def obter_data_brasil():
     return data_hora
 
 def editar_imagem_com_timestamp(caminho_arquivo):
-    """Edita a imagem salva para inserir o carimbo de data/hora no canto superior direito."""
+    """Edita a imagem salva para inserir o carimbo de data/hora no CENTRO ESQUERDO."""
     try:
         print(">> Iniciando edição da imagem...")
         agora = obter_data_brasil()
@@ -38,22 +38,23 @@ def editar_imagem_com_timestamp(caminho_arquivo):
 
         img_w, img_h = img.size
         
-        # Calcula tamanho do texto
+        # Calcula tamanho do texto para poder centralizar
         bbox = draw.textbbox((0, 0), texto, font=font)
         text_w = bbox[2] - bbox[0]
         text_h = bbox[3] - bbox[1]
 
-        # --- Nova Posição: Canto Superior Direito ---
-        margem = 50
-        pos_x = img_w - text_w - margem
-        pos_y = margem # Fica no topo com uma margem
+        # --- CÁLCULO DA POSIÇÃO (Centro Vertical / Esquerda) ---
+        margem = 50 # Distância da borda esquerda
+        
+        pos_x = margem
+        pos_y = (img_h - text_h) / 2 # Cálculo clássico para centralizar verticalmente
 
         # Escreve em Vermelho (RGB: 255, 0, 0)
-        # Adicionei um alinhamento à direita para o texto ficar certinho
-        draw.multiline_text((pos_x, pos_y), texto, font=font, fill=(255, 0, 0), align="right")
+        # align="left" garante que as duas linhas (data e hora) fiquem alinhadas entre si à esquerda
+        draw.multiline_text((pos_x, pos_y), texto, font=font, fill=(255, 0, 0), align="left")
 
         img.save(caminho_arquivo)
-        print(">> Imagem editada com sucesso (Canto superior direito).")
+        print(">> Imagem editada com sucesso (Centro Esquerdo).")
         return True
     except Exception as e:
         print(f">> Erro ao editar imagem: {e}")
@@ -93,7 +94,7 @@ def capturar_e_processar():
         options.add_argument("--headless=new") 
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
-        # VOLTANDO PARA RESOLUÇÃO FULL HD (Print grande)
+        # Mantendo resolução Full HD para o print ficar grande e legível
         options.add_argument("--window-size=1920,1080")
         
         service = Service(ChromeDriverManager().install())
@@ -119,7 +120,7 @@ def capturar_e_processar():
 
     # --- PROCESSAMENTO E ENVIO ---
     if os.path.exists(NOME_ARQUIVO_SS):
-        # 1. Edita a imagem (coloca data/hora em vermelho no canto superior)
+        # 1. Edita a imagem (coloca data/hora em vermelho no centro esquerdo)
         editar_imagem_com_timestamp(NOME_ARQUIVO_SS)
         
         # 2. Envia para o Telegram sem texto
