@@ -20,7 +20,7 @@ def obter_data_brasil():
     return data_hora
 
 def editar_imagem_com_timestamp(caminho_arquivo):
-    """Edita a imagem salva para inserir o carimbo de data/hora."""
+    """Edita a imagem salva para inserir o carimbo de data/hora no canto superior direito."""
     try:
         print(">> Iniciando edição da imagem...")
         agora = obter_data_brasil()
@@ -43,15 +43,17 @@ def editar_imagem_com_timestamp(caminho_arquivo):
         text_w = bbox[2] - bbox[0]
         text_h = bbox[3] - bbox[1]
 
-        # Posição: Direita (com margem de 50px) e Centralizado Verticalmente
-        pos_x = img_w - text_w - 50
-        pos_y = (img_h - text_h) / 2
+        # --- Nova Posição: Canto Superior Direito ---
+        margem = 50
+        pos_x = img_w - text_w - margem
+        pos_y = margem # Fica no topo com uma margem
 
         # Escreve em Vermelho (RGB: 255, 0, 0)
-        draw.text((pos_x, pos_y), texto, font=font, fill=(255, 0, 0), align="center")
+        # Adicionei um alinhamento à direita para o texto ficar certinho
+        draw.multiline_text((pos_x, pos_y), texto, font=font, fill=(255, 0, 0), align="right")
 
         img.save(caminho_arquivo)
-        print(">> Imagem editada com sucesso.")
+        print(">> Imagem editada com sucesso (Canto superior direito).")
         return True
     except Exception as e:
         print(f">> Erro ao editar imagem: {e}")
@@ -65,7 +67,7 @@ def enviar_screenshot_telegram(caminho_arquivo):
     print("\nEnviando screenshot para o Telegram (Sem caption)...")
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendPhoto"
     
-    # Payload sem o campo 'caption'
+    # Payload APENAS com o chat_id, sem caption
     files = {'photo': open(caminho_arquivo, 'rb')}
     payload = {"chat_id": TELEGRAM_CHAT_ID}
     
@@ -86,12 +88,13 @@ def capturar_e_processar():
 
     try:
         options = webdriver.ChromeOptions()
-        # User-agent para evitar bloqueio básico
-        options.add_argument("user-agent=Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        # User-agent padrão de desktop
+        options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
         options.add_argument("--headless=new") 
         options.add_argument("--no-sandbox")
         options.add_argument("--disable-dev-shm-usage")
-        options.add_argument("--window-size=1366,768")
+        # VOLTANDO PARA RESOLUÇÃO FULL HD (Print grande)
+        options.add_argument("--window-size=1920,1080")
         
         service = Service(ChromeDriverManager().install())
         driver = webdriver.Chrome(service=service, options=options)
@@ -116,7 +119,7 @@ def capturar_e_processar():
 
     # --- PROCESSAMENTO E ENVIO ---
     if os.path.exists(NOME_ARQUIVO_SS):
-        # 1. Edita a imagem (coloca data/hora em vermelho)
+        # 1. Edita a imagem (coloca data/hora em vermelho no canto superior)
         editar_imagem_com_timestamp(NOME_ARQUIVO_SS)
         
         # 2. Envia para o Telegram sem texto
