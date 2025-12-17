@@ -25,20 +25,13 @@ jobs:
           python-version: '3.9'
 
       - name: Instalar bibliotecas
+        # Alterei aqui para instalar diretamente as bibliotecas necessárias, 
+        # garantindo que o Pillow esteja presente sem você precisar editar um requirements.txt
         run: |
-          pip install -r requirements.txt
+          pip install selenium webdriver-manager requests Pillow
 
       - name: Rodar o Robô
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: python main.py
-
-      - name: Salvar CSV atualizado
-        run: |
-          git config --global user.name 'Robo GitHub'
-          git config --global user.email 'robo@users.noreply.github.com'
-          git add relatorio_medicamento.csv
-          # O comando abaixo só commita se houver mudança, evitando erro se o preço for igual
-          git commit -m "Atualizacao de preco (Rotina)" || echo "Sem mudanças no CSV"
-          git push
